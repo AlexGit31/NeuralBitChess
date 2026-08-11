@@ -16,46 +16,68 @@ This project is divided into two main parts:
 
 ## 📊 Benchmarks
 
-All measurements on **Apple Silicon M1** (MacBook Pro, single-threaded), compiled with `gcc -O3 -march=native`.
+All measurements on **Apple Silicon M1** (MacBook Pro, single-threaded), compiled with `gcc -O3 -march=native`. Two modes are benchmarked:
 
-### Nodes Per Second (NPS)
+- **Perft** — pure legal move generation + make/unmake, no evaluation, no pruning. Measures raw movegen throughput.
+- **Search** — full alpha-beta search with NMP + LMR, measuring practical playing speed.
+
+### Perft Speed (Move Generation)
+
+| Position | Depth | Nodes | Time | **NPS** |
+|----------|-------|-------|------|---------|
+| Start (20 moves) | 4 | 197,281 | 3.8 ms | **51.9M** |
+| Start (20 moves) | 5 | 4,865,351 | 93.9 ms | **51.8M** |
+| Endgame (K+R vs K) | 5 | 118,023 | 3.6 ms | **32.5M** |
+| Endgame (K+R vs K) | 6 | 692,754 | 29.2 ms | **23.7M** |
+
+> The engine achieves **~52 million NPS** in perft mode on the starting position, demonstrating efficient bitboard move generation with `__builtin_ctzll` and copy-make-unmake on the stack.
+
+### Search Speed (Alpha-Beta + NNUE)
+
+#### Opening Position (all 32 pieces)
 
 | Depth | NNUE (768→256→32→1) | Material-Only |
 |-------|---------------------|---------------|
-| 1     | 20 nodes, 3.4 ms, **5,963 NPS** | 20 nodes, 2.4 ms, **8,372 NPS** |
-| 2     | 368 nodes, 55 ms, **6,686 NPS** | 368 nodes, 42 ms, **8,770 NPS** |
-| 3     | 1,531 nodes, 181 ms, **8,453 NPS** | 1,531 nodes, 173 ms, **8,876 NPS** |
-| 4     | 3,247 nodes, 339 ms, **9,583 NPS** | 3,247 nodes, 338 ms, **9,613 NPS** |
-| 5     | 105k nodes, 11.9 s, **8,878 NPS** | 105k nodes, 11.2 s, **9,459 NPS** |
-| 6     | 391k nodes, 191.7 s, **2,041 NPS** ⚠️ | — |
+| 1 | 20 nodes, 2.4 ms, **8,271 NPS** | 20 nodes, 2.5 ms, **8,061 NPS** |
+| 2 | 368 nodes, 41.6 ms, **8,849 NPS** | 368 nodes, 41.6 ms, **8,840 NPS** |
+| 3 | 1,531 nodes, 169 ms, **9,069 NPS** | 1,531 nodes, 173 ms, **8,854 NPS** |
+| 4 | 3,247 nodes, 330 ms, **9,834 NPS** | 3,247 nodes, 339 ms, **9,574 NPS** |
+| 5 | 105k nodes, 11.3 s, **9,376 NPS** | 105k nodes, 11.3 s, **9,359 NPS** |
 
-> ⚠️ At depth 6, thermal throttling reduces NPS significantly. The engine has **no transposition table**, so search tree size grows exponentially. Depths 1–5 are the practical range.
+#### Endgame (K+R vs K, 3 pieces)
 
-### Self-Play Speed (Depth 4, NNUE ON)
+| Depth | NNUE | Material-Only |
+|-------|------|---------------|
+| 3 | 622 nodes, 53 ms, **11,712 NPS** | 622 nodes, 48 ms, **13,061 NPS** |
+| 4 | 596 nodes, 32 ms, **18,494 NPS** | 596 nodes, 29 ms, **20,487 NPS** |
+| 5 | 3,978 nodes, 287 ms, **13,842 NPS** | 3,978 nodes, 283 ms, **14,045 NPS** |
+
+### Self-Play Speed (Depth 4, Starting Position, NNUE ON)
 
 | Metric | Value |
 |--------|-------|
 | Average time per move | **650 ms** |
 | Average nodes per move | **6,541** |
 | Average NPS | **~10,000** |
-| Total time (30 moves) | **19.5 seconds** |
+| 30 moves completed in | **19.5 seconds** |
 
 ### Key Takeaways
 
-- **~10,000 NPS** on Apple M1 (single core) — respectable for a custom engine without Magic Bitboards or transposition tables
-- **NNUE eval adds negligible overhead** (~5% slower than material-only) thanks to sparse input optimization (only multiplies non-zero input activations)
-- The engine performs best at **depths 3–5** (sub-second to ~12 seconds per move)
-- **No transposition table** means significant redundant work; adding one would increase effective search depth by 1–2 ply
+- **Move generation is fast** — ~52 million NPS in perft mode on the starting position. This is the engine's strength and confirms the bitboard implementation is efficient.
+- **NNUE adds ~5% overhead** vs material-only evaluation, thanks to the sparse-input optimization (only multiplies non-zero input activations, avoiding 196,000 useless multiplications per evaluation).
+- **NPS scales with position** — endgames are faster (fewer pieces → faster eval and movegen). Endgame search reaches 20,000 NPS vs ~9,500 in the opening.
+- **No transposition table** means significant redundant work; adding one would increase effective search depth by 1–2 ply.
+- The engine performs best at **depths 3–5** (sub-second to ~12 seconds per move in the opening).
 
 ### What This Engine Is (and Isn't)
 
 NeuralBit Chess is an **educational chess engine** that demonstrates:
-- ✅ Bitboard move generation with full legal move filtering
+- ✅ Bitboard move generation with full legal move filtering — **52M NPS perft**
 - ✅ Alpha-beta search with Null Move Pruning and Late Move Reductions
-- ✅ NNUE evaluation with efficient sparse inference in C
+- ✅ NNUE evaluation with efficient sparse inference in C — only ~5% overhead
 - ✅ Complete self-play training pipeline (C++ LibTorch + Python)
 
-It is **not** competitive with top engines like Stockfish (which achieves 1–2 million NPS on the same hardware, with iterative deepening, transposition tables, advanced move ordering, and quiescence search). This engine is a **learning project** that shows solid understanding of modern chess programming techniques — it will beat casual human players but is not designed for engine tournaments.
+It is **not** competitive with top engines like Stockfish (which achieves 1–2 million NPS **in search mode** on the same hardware, with iterative deepening, transposition tables, magic bitboards, advanced move ordering, and quiescence search). This engine is a **learning project** that shows solid understanding of modern chess programming techniques — it will beat casual human players at depth 4–5 but is not designed for engine tournaments.
 
 ---
 
